@@ -661,10 +661,15 @@ function render() {
 
     if ( petEnableAnaglyph ) {
         anaglyphEnabled = true;
+        controls.noPan = true;
+        controls.noZoom = true;
+        controls.target.set( 0, 0, 0 );
         petEnableAnaglyph = false;
     }
     if ( petDisableAnaglyph ) {
         anaglyphEnabled = false;
+        controls.noPan = false;
+        controls.noZoom = false;
         petDisableAnaglyph = false;
     }
 
