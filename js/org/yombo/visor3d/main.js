@@ -20,10 +20,15 @@ var printSizeX = printMaxX - printMinX;
 var printSizeY = printMaxY - printMinY;
 var printSizeZ = printMaxZ - printMinZ;
 
+// Object Y Offset
+var offsetYObject = 0.0001;
+
 // Colors
 var textColor = 0x000000;
 
 var backGroundColor = 0xc8c8c8;
+
+var bboxColor = 0xff0000;
 
 // Default material for objects
 var materialDefault = new THREE.MeshPhongMaterial( { color: 0x3090ea, specular: 0xffffff, shininess: 100, side: THREE.DoubleSide } );
@@ -82,7 +87,13 @@ var anaglyphEnabled = false;
 var petEnableAnaglyph = false;
 var petDisableAnaglyph = false;
 
+var petEnableBBoxView = false;
+var petDisableBBoxView = false;
+
 var anaglyphCamera, anaglyphShaderMaterial, anaglyphScene;
+
+var checkBBox;
+var boundingBoxLines = null;
 
 var vec3Aux = new THREE.Vector3();
 
@@ -95,7 +106,6 @@ function init() {
     document.body.appendChild( container );
 
     scene = new THREE.Scene();
-    //scene.fog = new THREE.Fog( 0x0e4c85, 2, maxDistance );
 
     camera = new THREE.PerspectiveCamera( 35, window.innerWidth / window.innerHeight, 0.01, maxDistance );
     camera.position.set( -0.3, 0.4, 0.6 );
@@ -117,16 +127,6 @@ function init() {
     camera.lookAt( cameraTarget );
 
     // Ground
-    //0x52bdcf
-    /*
-    var groundTexture = THREE.ImageUtils.loadTexture( "textures/gridcolores.png" );
-    setTextureFilters( groundTexture );
-    //groundTexture.wrapS = groundTexture.wrapT = THREE.RepeatWrapping;
-    //groundTexture.repeat.set( 2, 2 );
-    var materialGround = new THREE.MeshBasicMaterial( {
-        map: groundTexture
-    } );
-    */
     var shaderMaterialGround = new THREE.ShaderMaterial( {
         uniforms: {
         },
@@ -135,7 +135,7 @@ function init() {
         //side: THREE.DoubleSide
     } );
 
-    ground = new THREE.Mesh( new THREE.PlaneBufferGeometry( 200, 200 ), shaderMaterialGround );
+    ground = new THREE.Mesh( new THREE.PlaneBufferGeometry( 10, 10 ), shaderMaterialGround );
     ground.rotation.x = -Math.PI/2;
     scene.add( ground );
 
@@ -177,8 +177,6 @@ function init() {
         uniforms: {
             leftTexture: { type: "t", value: leftRT },
             rightTexture: { type: "t", value: rightRT },
-            //color: { type: "c", value: new THREE.Color( 0xff2200 ) },
-            //time: { type: "f", value: 1.0 }
         },
         vertexShader: textVertexShaderAnaglyph,
         fragmentShader: textFragmentShaderAnaglyph,
@@ -198,10 +196,6 @@ function init() {
     stats.domElement.style.top = '0px';
     container.appendChild( stats.domElement );
 */
-
-    // Label to show text
-    //volumeLabel = document.getElementById( 'volumeLabel' );
-
 
     // Setup event handlers:
 
@@ -227,7 +221,6 @@ function init() {
     // Anaglyph view checkbox
     var checkAnaglyph = document.getElementById( 'checkAnaglyph' );
     checkAnaglyph.addEventListener( 'change', function( evt ) {
-            //petEnableAnaglyph
             if ( checkAnaglyph.checked ) {
                 petEnableAnaglyph = true;
             }
@@ -235,6 +228,21 @@ function init() {
                 petDisableAnaglyph = true;
             }
         }, false );
+
+    // Bounding Box view checkbox
+    checkBBox = document.getElementById( 'checkBBox' );
+    checkBBox.addEventListener( 'change', function( evt ) {
+            if ( currentObject == null ) {
+                return;
+            }
+            if ( checkBBox.checked ) {
+                petEnableBBoxView = true;
+            }
+            else {
+                petDisableBBoxView = true;
+            }
+        }, false );
+
 }
 
 function handleFileSelect( evt ) {
@@ -244,14 +252,6 @@ function handleFileSelect( evt ) {
 
     loadFile( files[ 0 ] );
 
-/*
-    // files is a FileList of File objects. List some properties.
-    for ( var i = 0, f; f = files[i]; i++) {
-        alert( escape( f.name ) );
-        //f.type || 'n/a'
-        //f.size
-    }
-*/
 }
 
 function handleDropIn( evt ) {
@@ -287,11 +287,6 @@ function loadFile( file ) {
     else if ( lower.endsWith( '.dae' ) ) {
         return loadDAEFile( file );
     }
-    /*
-    else if ( lower.endsWith( '.svg' ) ) {
-        return loadSVGFile( file );
-    }
-    */
     else {
         alert( "Unrecognized file type: " + file.name );
     }
@@ -314,37 +309,6 @@ function loadSTLFile( file ) {
     };
 
     reader.readAsBinaryString( file );
-}
-
-function loadSVGFile( file ) {
-
-    // This function doesn't work
-
-    var reader = new FileReader();
-
-    reader.onload = function( e ) {
-
-
-        var svgString = e.target.result;
-
-        var parser = new DOMParser();
-        var doc = parser.parseFromString( svgString, 'image/svg+xml' );  // application/xml
-
-        var svg = doc.firstChild; // todo...
-
-        var extrudeDistance = Number( window.prompt( "Extrude distance in cm:","10") );
-
-        var extrudeSettings = { amount: extrudeDistance * 0.01, bevelEnabled: false, bevelSegments: 2, steps: 2, bevelSize: 1, bevelThickness: 1 };
-        var geometry = new THREE.ExtrudeGeometry( svg, extrudeSettings );
-
-        var mesh = new THREE.Mesh( geometry, materialDefault );
-
-        prepareObject( mesh, true );
-
-    };
-
-    reader.readAsText( file );
-
 }
 
 function loadDAEFile( file ) {
@@ -392,16 +356,15 @@ function prepareObject( object, doScale ) {
     sizeY = bbox.max.y - bbox.min.y;
     sizeZ = bbox.max.z - bbox.min.z;
 
-    var x2 = ( bbox.min.x + bbox.max.x ) * 0.5;// * scale;
-    var z2 = ( bbox.min.y + bbox.max.y ) * 0.5;// * scale;
-    var yFloor = bbox.min.z;// * scale;
-    object.position.set( - x2, - yFloor, z2 );
+    var x2 = ( bbox.min.x + bbox.max.x ) * 0.5;
+    var z2 = ( bbox.min.y + bbox.max.y ) * 0.5;
+    var yFloor = bbox.min.z;
+    object.position.set( - x2, - yFloor + offsetYObject, z2 );
     object.rotation.set( - Math.PI / 2, 0, 0 );
 
     var mx = Math.abs( bbox.max.x - bbox.min.x );
     var mz = Math.abs( bbox.max.y - bbox.min.y );
     var scDist = 3;
-    //distCamObject = Math.max( mx, mz ) * scDist * scale;
     distCamObject = mz * scDist;// * scale;
 
     object.castShadow = true;
@@ -418,9 +381,13 @@ function prepareObject( object, doScale ) {
     var sy = numberDigits( sizeY / 0.01, 2 );
     var sz = numberDigits( sizeZ / 0.01, 2 );
 
-    //volumeLabel.innerHTML = "Object volume: " + numberDigits( volume, 2 ) + " cm³ (bbox:" + sx + ", " + sy + ", " + sz + ") Price: " + numberDigits( price, 2 ) + "€";
     addTextToScene( volume, sx, sy, sz, price );
 
+    bbox.setFromObject( object );
+
+    if ( checkBBox.checked ) {
+        petEnableBBoxView = true;
+    }
 }
 
 function numberDigits( number, decimalDigits ) {
@@ -531,6 +498,54 @@ function createText( text, color, bold, italics, ySize, yPosition ) {
 
 }
 
+function createBBoxHelper() {
+
+    if ( boundingBoxLines != null ) {
+        scene.remove( boundingBoxLines );
+    }
+
+    var x0 = bbox.min.x;
+    var x1 = bbox.max.x;
+    var y0 = bbox.min.y;
+    var y1 = bbox.max.y;
+    var z0 = bbox.min.z;
+    var z1 = bbox.max.z;
+
+    var geometry = new THREE.Geometry();
+    geometry.vertices.push( new THREE.Vector3( x0, y0, z0 ) );
+    geometry.vertices.push( new THREE.Vector3( x1, y0, z0 ) );
+    geometry.vertices.push( new THREE.Vector3( x0, y1, z0 ) );
+    geometry.vertices.push( new THREE.Vector3( x1, y1, z0 ) );
+    geometry.vertices.push( new THREE.Vector3( x0, y0, z1 ) );
+    geometry.vertices.push( new THREE.Vector3( x1, y0, z1 ) );
+    geometry.vertices.push( new THREE.Vector3( x0, y1, z1 ) );
+    geometry.vertices.push( new THREE.Vector3( x1, y1, z1 ) );
+
+    geometry.vertices.push( new THREE.Vector3( x0, y0, z0 ) );
+    geometry.vertices.push( new THREE.Vector3( x0, y1, z0 ) );
+    geometry.vertices.push( new THREE.Vector3( x1, y0, z0 ) );
+    geometry.vertices.push( new THREE.Vector3( x1, y1, z0 ) );
+    geometry.vertices.push( new THREE.Vector3( x0, y0, z1 ) );
+    geometry.vertices.push( new THREE.Vector3( x0, y1, z1 ) );
+    geometry.vertices.push( new THREE.Vector3( x1, y0, z1 ) );
+    geometry.vertices.push( new THREE.Vector3( x1, y1, z1 ) );
+
+    geometry.vertices.push( new THREE.Vector3( x0, y0, z0 ) );
+    geometry.vertices.push( new THREE.Vector3( x0, y0, z1 ) );
+    geometry.vertices.push( new THREE.Vector3( x1, y0, z0 ) );
+    geometry.vertices.push( new THREE.Vector3( x1, y0, z1 ) );
+    geometry.vertices.push( new THREE.Vector3( x0, y1, z0 ) );
+    geometry.vertices.push( new THREE.Vector3( x0, y1, z1 ) );
+    geometry.vertices.push( new THREE.Vector3( x1, y1, z0 ) );
+    geometry.vertices.push( new THREE.Vector3( x1, y1, z1 ) );
+
+
+    var material = new THREE.LineBasicMaterial( { color: bboxColor } );
+    boundingBoxLines = new THREE.Line( geometry, material, THREE.LinePieces );
+
+    scene.add( boundingBoxLines );
+}
+
 function addShadowedLight( x, y, z, color, intensity ) {
 
     var directionalLight = new THREE.DirectionalLight( color, intensity );
@@ -638,10 +653,6 @@ function render() {
 
         camera.position.set( - distCamObject * 0.3, distCamObject, distCamObject * 1.5 );
         camera.lookAt( cameraTarget );
-
-        //volumeBtn.disabled = false;
-
-        //volumeLabel.innerHTML = "Press the button to calculate the object volume.";
     }
 
     /*
@@ -671,6 +682,16 @@ function render() {
         controls.noPan = false;
         controls.noZoom = false;
         petDisableAnaglyph = false;
+    }
+
+    if ( petEnableBBoxView ) {
+        createBBoxHelper();
+        petEnableBBoxView = false;
+    }
+    if ( petDisableBBoxView && boundingBoxLines != null ) {
+        scene.remove( boundingBoxLines );
+        boundingBoxLines = null;
+        petDisableBBoxView = false;
     }
 
     if ( ! anaglyphEnabled ) {
